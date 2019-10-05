@@ -50,7 +50,7 @@
 //!
 //! // Are the actions what we expected?
 //! let planned_actions_names: Vec<String> =
-//!     planned_actions.iter().map(|&action| action.name.clone()).collect();
+//!     planned_actions.iter().map(|action: &&Action<String,String>| action.name.clone()).collect();
 //! let expected_actions_names =
 //!     vec!["walk_to_dog".to_string(), "pet_dog".to_string(), "dog_wiggles_tail".to_string()];
 //! assert_eq!(planned_actions_names, expected_actions_names);
@@ -74,15 +74,15 @@ pub type State<K> = BTreeMap<K, bool>;
 /// An action that can be used to influence the world state.
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(PartialEq, Eq)]
-pub struct Action<K> {
+pub struct Action<K,P> {
     pub name: K,
     pub cost: usize,
-    pub pre_conditions: State<K>,
-    pub post_conditions: State<K>,
+    pub pre_conditions: State<P>,
+    pub post_conditions: State<P>,
 }
 
-impl <K> Action<K> where K: Ord {
-    pub fn new<I>(name: I, cost: usize) -> Action<K> where I: Into<K> {
+impl <K,P> Action<K,P> where P: Ord {
+    pub fn new<I>(name: I, cost: usize) -> Action<K,P> where I: Into<K> {
         Action {
             name: name.into(),
             cost: cost,
@@ -94,12 +94,12 @@ impl <K> Action<K> where K: Ord {
 
 /// A node in the planner graph.
 #[derive(PartialEq, Eq, Clone)]
-struct PlanNode<'a,K> {
-    current_state: State<K>,
-    action: Option<&'a Action<K>>,
+struct PlanNode<'a,K,P> {
+    current_state: State<P>,
+    action: Option<&'a Action<K,P>>,
 }
 
-impl<'a,K> Hash for PlanNode<'a,K> where K: Hash {
+impl<'a,K,P> Hash for PlanNode<'a,K,P> where K: Hash, P: Hash {
     fn hash<H>(&self, state: &mut H)
         where H: Hasher
     {
@@ -114,9 +114,9 @@ impl<'a,K> Hash for PlanNode<'a,K> where K: Hash {
     }
 }
 
-impl<'a,K> PlanNode<'a,K> where K: Clone + Ord {
+impl<'a,K,P> PlanNode<'a,K,P> where K: Clone, P: Clone + Ord {
     /// Makes an initial plan node without a parent.
-    fn initial(initial_state: &'a State<K>) -> PlanNode<'a,K> {
+    fn initial(initial_state: &'a State<P>) -> PlanNode<'a,K,P> {
         PlanNode {
             current_state: initial_state.clone(),
             action: None,
@@ -124,7 +124,7 @@ impl<'a,K> PlanNode<'a,K> where K: Clone + Ord {
     }
 
     /// Makes a plan node from a parent state and an action applied to that state.
-    fn child(parent_state: State<K>, action: &'a Action<K>) -> PlanNode<'a,K> {
+    fn child(parent_state: State<P>, action: &'a Action<K,P>) -> PlanNode<'a,K,P> {
         let mut child = PlanNode {
             current_state: parent_state.clone(),
             action: Some(action),
@@ -139,8 +139,8 @@ impl<'a,K> PlanNode<'a,K> where K: Clone + Ord {
     }
 
     /// Returns all possible nodes from this current state, along with the cost to get there.
-    fn possible_next_nodes(&self, actions: &'a [Action<K>]) -> Vec<(PlanNode<'a,K>, usize)> {
-        let mut nodes: Vec<(PlanNode<'a,K>, usize)> = vec![];
+    fn possible_next_nodes(&self, actions: &'a [Action<K,P>]) -> Vec<(PlanNode<'a,K,P>, usize)> {
+        let mut nodes: Vec<(PlanNode<'a,K,P>, usize)> = vec![];
         for action in actions {
             if self.matches(&action.pre_conditions) {
                 nodes.push((PlanNode::child(self.current_state.clone(), action), action.cost));
@@ -151,7 +151,7 @@ impl<'a,K> PlanNode<'a,K> where K: Clone + Ord {
     }
 
     /// Count the number of states in this node that aren't matching the given target.
-    fn mismatch_count(&self, target: &State<K>) -> usize {
+    fn mismatch_count(&self, target: &State<P>) -> usize {
         let mut count: usize = 0;
         for (name, target_value) in target {
             if let Some(current_value) = self.current_state.get(name) {
@@ -167,17 +167,17 @@ impl<'a,K> PlanNode<'a,K> where K: Clone + Ord {
     }
 
     /// Returns `true` if the current node is a full match for the given target.
-    fn matches(&self, target: &State<K>) -> bool {
+    fn matches(&self, target: &State<P>) -> bool {
         self.mismatch_count(target) == 0
     }
 }
 
 /// Formulates a plan to get from an initial state to a goal state using a set of allowed actions.
-pub fn plan<'a,K>(initial_state: &'a State<K>,
-                goal_state: &State<K>,
-                allowed_actions: &'a [Action<K>])
-                -> Option<Vec<&'a Action<K>>>
-                where K: Clone + Ord + Hash {
+pub fn plan<'a,K,P>(initial_state: &'a State<P>,
+                goal_state: &State<P>,
+                allowed_actions: &'a [Action<K,P>])
+                -> Option<Vec<&'a Action<K,P>>>
+                where K: Clone + Hash + Eq, P: Clone + Ord + Hash {
     // Builds our initial plan node.
     let start = PlanNode::initial(initial_state);
 
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_edge_cases() {
-        let mut action = Action::new("action".to_string(), 1);
+        let mut action = Action::<String,String>::new("action".to_string(), 1);
         action.pre_conditions.insert("has_something".to_string(), true);
         action.post_conditions.insert("is_winning".to_string(), true);
 
