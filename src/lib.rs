@@ -69,22 +69,22 @@ use std::hash::{Hash, Hasher};
 use pathfinding::prelude::astar;
 
 /// A map of state atoms to their values.
-pub type State = BTreeMap<String, bool>;
+pub type State<K> = BTreeMap<K, bool>;
 
 /// An action that can be used to influence the world state.
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
 #[derive(PartialEq, Eq)]
-pub struct Action {
-    pub name: String,
+pub struct Action<K> {
+    pub name: K,
     pub cost: usize,
-    pub pre_conditions: State,
-    pub post_conditions: State,
+    pub pre_conditions: State<K>,
+    pub post_conditions: State<K>,
 }
 
-impl Action {
-    pub fn new(name: String, cost: usize) -> Action {
+impl <K> Action<K> where K: Ord {
+    pub fn new<I>(name: I, cost: usize) -> Action<K> where I: Into<K> {
         Action {
-            name: name,
+            name: name.into(),
             cost: cost,
             pre_conditions: State::new(),
             post_conditions: State::new(),
@@ -94,12 +94,12 @@ impl Action {
 
 /// A node in the planner graph.
 #[derive(PartialEq, Eq, Clone)]
-struct PlanNode<'a> {
-    current_state: State,
-    action: Option<&'a Action>,
+struct PlanNode<'a,K> {
+    current_state: State<K>,
+    action: Option<&'a Action<K>>,
 }
 
-impl<'a> Hash for PlanNode<'a> {
+impl<'a,K> Hash for PlanNode<'a,K> where K: Hash {
     fn hash<H>(&self, state: &mut H)
         where H: Hasher
     {
@@ -114,9 +114,9 @@ impl<'a> Hash for PlanNode<'a> {
     }
 }
 
-impl<'a> PlanNode<'a> {
+impl<'a,K> PlanNode<'a,K> where K: Clone + Ord {
     /// Makes an initial plan node without a parent.
-    fn initial(initial_state: &'a State) -> PlanNode<'a> {
+    fn initial(initial_state: &'a State<K>) -> PlanNode<'a,K> {
         PlanNode {
             current_state: initial_state.clone(),
             action: None,
@@ -124,7 +124,7 @@ impl<'a> PlanNode<'a> {
     }
 
     /// Makes a plan node from a parent state and an action applied to that state.
-    fn child(parent_state: State, action: &'a Action) -> PlanNode<'a> {
+    fn child(parent_state: State<K>, action: &'a Action<K>) -> PlanNode<'a,K> {
         let mut child = PlanNode {
             current_state: parent_state.clone(),
             action: Some(action),
@@ -139,8 +139,8 @@ impl<'a> PlanNode<'a> {
     }
 
     /// Returns all possible nodes from this current state, along with the cost to get there.
-    fn possible_next_nodes(&self, actions: &'a [Action]) -> Vec<(PlanNode<'a>, usize)> {
-        let mut nodes: Vec<(PlanNode<'a>, usize)> = vec![];
+    fn possible_next_nodes(&self, actions: &'a [Action<K>]) -> Vec<(PlanNode<'a,K>, usize)> {
+        let mut nodes: Vec<(PlanNode<'a,K>, usize)> = vec![];
         for action in actions {
             if self.matches(&action.pre_conditions) {
                 nodes.push((PlanNode::child(self.current_state.clone(), action), action.cost));
@@ -151,7 +151,7 @@ impl<'a> PlanNode<'a> {
     }
 
     /// Count the number of states in this node that aren't matching the given target.
-    fn mismatch_count(&self, target: &State) -> usize {
+    fn mismatch_count(&self, target: &State<K>) -> usize {
         let mut count: usize = 0;
         for (name, target_value) in target {
             if let Some(current_value) = self.current_state.get(name) {
@@ -167,16 +167,17 @@ impl<'a> PlanNode<'a> {
     }
 
     /// Returns `true` if the current node is a full match for the given target.
-    fn matches(&self, target: &State) -> bool {
+    fn matches(&self, target: &State<K>) -> bool {
         self.mismatch_count(target) == 0
     }
 }
 
 /// Formulates a plan to get from an initial state to a goal state using a set of allowed actions.
-pub fn plan<'a>(initial_state: &'a State,
-                goal_state: &State,
-                allowed_actions: &'a [Action])
-                -> Option<Vec<&'a Action>> {
+pub fn plan<'a,K>(initial_state: &'a State<K>,
+                goal_state: &State<K>,
+                allowed_actions: &'a [Action<K>])
+                -> Option<Vec<&'a Action<K>>>
+                where K: Clone + Ord + Hash {
     // Builds our initial plan node.
     let start = PlanNode::initial(initial_state);
 
